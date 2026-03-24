@@ -26,8 +26,8 @@ jobs:
       - name: Install Argos model (EN -> ES) via API
         run: python tools/install_model.py
 
-      - name: Translate book (EN -> ES)
-        run: python tools/translate.py
+      - name: Merge & translate chapters (EN -> ES)
+        run: python tools/merge_and_translate.py
 
       - name: Build EPUB (ES)
         run: pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. --metadata=title:"Agentic Design Patterns (Traduccion tecnica en espanol)" --metadata=language:es-ES --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png -o build/Agentic_Design_Patterns_es.epub
