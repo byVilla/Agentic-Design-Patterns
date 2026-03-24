@@ -10,7 +10,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system deps (Pandoc + TeX)
+      - name: Install Pandoc + TeX
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc texlive-latex-recommended \
@@ -21,100 +21,53 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install translation libs
+      - name: Install Argos Translate + deps
         run: |
           python -m pip install --upgrade pip
           pip install argostranslate==1.9.6 markdown-it-py==3.0.0
+          python -c "import argostranslate.package,urllib.request,os,tempfile; u='https://github.com/argosopentech/argos-translate/releases/download/v1.9/en_es.argosmodel'; d=os.path.join(tempfile.gettempdir(),'en_es.argosmodel'); urllib.request.urlretrieve(u,d); argostranslate.package.install_from_path(d)"
 
-          # Instala paquete EN->ES de Argos Translate
-          python - << 'PY'
-import argostranslate.package, urllib.request, os, tempfile
-url = "https://github.com/argosopentech/argos-translate/releases/download/v1.9/en_es.argosmodel"
-dst = os.path.join(tempfile.gettempdir(), "en_es.argosmodel")
-urllib.request.urlretrieve(url, dst)
-argostranslate.package.install_from_path(dst)
-PY
-
-      - name: Prepare LaTeX header and cover (PDF)
+      - name: Prepare header/cover (PDF)
         run: |
           mkdir -p build
-          # Encabezado/pie PDF con fancyhdr
-          cat > build/header.tex << 'TEX'
-\usepackage{fancyhdr}
-\usepackage{graphicx}
-\pagestyle{fancy}
-\fancyhf{}
-\lhead{Agentic Design Patterns — Traducción técnica (ES)}
-\rfoot{\thepage}
-\setlength{\headheight}{14pt}
-TEX
+          # header.tex (encabezado/pie PDF)
+          {
+            echo '\usepackage{fancyhdr}';
+            echo '\usepackage{graphicx}';
+            echo '\pagestyle{fancy}';
+            echo '\fancyhf{}';
+            echo '\lhead{Agentic Design Patterns — Traducción técnica (ES)}';
+            echo '\rfoot{\thepage}';
+            echo '\setlength{\headheight}{14pt}';
+          } > build/header.tex
 
-          # Portada como titlepage en PDF
-          cat > build/cover.tex << 'TEX'
-\begin{titlepage}
-\centering
-\includegraphics[width=\textwidth]{assets/Agentic_Design_Patterns_Book_Cover.png}
-\end{titlepage}
-\clearpage
-TEX
+          # cover.tex (portada PDF)
+          {
+            echo '\begin{titlepage}';
+            echo '\centering';
+            echo '\includegraphics[width=\textwidth]{assets/Agentic_Design_Patterns_Book_Cover.png}';
+            echo '\end{titlepage}';
+            echo '\clearpage';
+          } > build/cover.tex
 
-      - name: Translate Markdown (EN -> ES) preserving code & links
+      - name: Translate Markdown (EN -> ES)
         run: |
-          python - << 'PY'
-import re, os
-from pathlib import Path
-import argostranslate.translate as tr
-
-root = Path(".")
-# Preferimos el manuscrito MD compilado de la raíz (preserva el orden del libro)
-candidates = sorted(root.glob("Agentic_Design_Patterns*.md"))
-if not candidates:
-    raise SystemExit("No se encontró el manuscrito compilado en la raíz.")
-src_md = candidates[0]
-text = src_md.read_text(encoding="utf-8")
-
-# Proteger bloques de código y backticks
-FENCE = re.compile(r"```[\\s\\S]*?```", re.MULTILINE)
-INLINE = re.compile(r"`[^`]+`")
-fences = []
-inlines = []
-
-def keep_fence(m):
-    fences.append(m.group(0))
-    return f"§§FENCE{len(fences)-1}§§"
-
-def keep_inline(m):
-    inlines.append(m.group(0))
-    return f"§§INLINE{len(inlines)-1}§§"
-
-text = FENCE.sub(keep_fence, text)
-text = INLINE.sub(keep_inline, text)
-
-# Traducción por párrafos (salta títulos, imágenes y líneas muy cortas)
-def translate_paragraph(p: str) -> str:
-    ps = p.strip()
-    if not ps: return p
-    if re.match(r"^\\s*#{1,6}\\s", ps): return p  # encabezados
-    if re.match(r"^\\s*(!?\\[.*?\\]\\(.*?\\))\\s*$", ps): return p  # imagen/enlace puros
-    if len(ps) < 6: return p
-    try:
-        return tr.translate(p, "en", "es")
-    except Exception:
-        return p
-
-parts = re.split(r"(\\n\\s*\\n)", text)  # conserva separadores
-for i in range(0, len(parts), 2):
-    parts[i] = translate_paragraph(parts[i])
-text = "".join(parts)
-
-# Restaurar inline y fences
-text = re.sub(r"§§INLINE(\\d+)§§", lambda m: inlines[int(m.group(1))], text)
-text = re.sub(r"§§FENCE(\\d+)§§", lambda m: fences[int(m.group(1))], text)
-
-Path("build").mkdir(exist_ok=True)
-Path("build/book-es.md").write_text(text, encoding="utf-8")
-print("Traducido -> build/book-es.md")
-PY
+          python -c "import re; from pathlib import Path; import argostranslate.translate as tr; root=Path('.'); c=sorted(root.glob('Agentic_Design_Patterns*.md')); 
+text=c[0].read_text(encoding='utf-8') if c else (_ for _ in ()).throw(SystemExit('No se encontró el manuscrito compilado en la raíz.'));
+FENCE=re.compile(r'```[\\s\\S]*?```',re.M); INLINE=re.compile(r'`[^`]+`'); fences=[]; inlines=[]; 
+text=FENCE.sub(lambda m: fences.append(m.group(0)) or f'§§FENCE{len(fences)-1}§§', text); 
+text=INLINE.sub(lambda m: inlines.append(m.group(0)) or f'§§INLINE{len(inlines)-1}§§', text);
+def tp(p): 
+    ps=p.strip(); 
+    import re as _r; 
+    return p if (not ps or ps.startswith('#') or _r.match(r'^\\s*(!?\\[.*?\\]\\(.*?\\))\\s*$', ps) or len(ps)<6) else tr.translate(p,'en','es');
+parts=re.split(r'(\\n\\s*\\n)', text); 
+parts[::2]=[tp(x) for x in parts[::2]]; 
+text=''.join(parts); 
+import re as _r; 
+text=_r.sub(r'§§INLINE(\\d+)§§', lambda m: inlines[int(m.group(1))], text); 
+text=_r.sub(r'§§FENCE(\\d+)§§', lambda m: fences[int(m.group(1))], text); 
+Path('build').mkdir(exist_ok=True); Path('build/book-es.md').write_text(text, encoding='utf-8')"
 
       - name: Build EPUB (ES)
         run: |
@@ -137,7 +90,7 @@ PY
             -V papersize:A4 -V geometry:margin=20mm \
             --include-in-header=build/header.tex \
             --include-before-body=build/cover.tex \
-            -o build/Agentic_Design_PatternS_es.pdf
+            -o build/Agentic_Design_Patterns_es.pdf
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
