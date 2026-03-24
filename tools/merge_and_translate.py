@@ -3,7 +3,6 @@ import re
 from pathlib import Path
 import argostranslate.translate as tr
 
-# Carpeta por carpeta (en orden)
 ORDERED_DIRS = [
     "00-Introduction",
     "01-Part_One",
@@ -13,26 +12,22 @@ ORDERED_DIRS = [
     "05-Appendix",
 ]
 
-# Ficheros sueltos de la raíz que queremos añadir al FINAL (en este orden)
 ROOT_FILES_ORDER = [
-    "Conclusion*.md",                 # Conclusión
-    "Glossary*.md",                   # Glosario
-    "Index_of_Terms*.md",             # Índice de términos
-    "Online_Contribution*.md",        # FAQ contribución (opcional)
-    "README.md",                      # README (filtraremos la sección "Table of Contents")
+    "Conclusion*.md",
+    "Glossary*.md",
+    "Index_of_Terms*.md",
+    "Online_Contribution*.md",
+    "README.md",
 ]
 
-# ¿Quieres conservar TODO el README sin filtrar?
-PRESERVE_README_AS_IS = False  # Cambia a True si quieres incluirlo íntegro (incluida su TOC)
+PRESERVE_README_AS_IS = False
 
 root = Path(".")
 build = Path("build")
+assets_dir = root / "assets"
 build.mkdir(exist_ok=True)
 
-# --- Utilidades ---
-
 def list_chapter_files():
-    """Lista todos los .md de las carpetas de capítulos, en orden y ordenados por nombre."""
     files = []
     for d in ORDERED_DIRS:
         p = root / d
@@ -41,22 +36,15 @@ def list_chapter_files():
     return files
 
 def list_root_files():
-    """Devuelve los ficheros raíz en el orden deseado, si existen."""
     files = []
     for pattern in ROOT_FILES_ORDER:
-        matched = sorted(root.glob(pattern), key=lambda x: x.name)
-        files.extend(matched)
+        files += sorted(root.glob(pattern), key=lambda x: x.name)
     return files
 
 def is_readme(path: Path) -> bool:
     return path.name.lower() == "readme.md"
 
 def strip_sections_by_title(md_text: str, titles_to_strip):
-    """
-    Elimina secciones completas cuyo encabezado H1..H6 coincida (case-insensitive)
-    con alguna cadena en 'titles_to_strip'. Quita desde el encabezado hasta
-    el siguiente encabezado del mismo nivel o superior.
-    """
     lines = md_text.splitlines()
     out = []
     i = 0
@@ -67,22 +55,65 @@ def strip_sections_by_title(md_text: str, titles_to_strip):
             level = len(m.group(2))
             title = m.group(3).strip().lower()
             if any(title.startswith(t.strip().lower()) for t in titles_to_strip):
-                # Saltar hasta próximo heading de nivel <= 'level'
                 i += 1
                 while i < len(lines):
                     m2 = re.match(r'^\s*#{1,6}\s+', lines[i])
                     if m2:
-                        # Compara nivel
                         lvl2 = len(re.match(r'^\s*(#{1,6})', lines[i]).group(1))
                         if lvl2 <= level:
                             break
                     i += 1
-                continue  # no añadimos esta sección
+                continue
         out.append(line)
         i += 1
     return "\n".join(out)
 
-# Traducción preservando bloques de código y backticks
+# ---------- NUEVO: normalización de rutas de imagen ----------
+
+def _normalize_src(src: str, md_path: Path) -> str:
+    """Normaliza la ruta de una imagen para que funcione desde la raíz (build/)."""
+    s = src.strip()
+
+    # No tocar URLs absolutas o data URIs
+    if s.startswith(("http://", "https://", "data:")):
+        return s
+
+    # Arreglar erratas y ../assets -> assets
+    s = s.replace("assests/", "assets/").replace("../assests/", "assets/")
+    if s.startswith("../assets/"):
+        s = s[3:]  # quita ../
+
+    # Si es un nombre suelto, intenta resolver a assets/<archivo>
+    if "/" not in s:
+        cand = assets_dir / s
+        if cand.exists():
+            return f"assets/{s}"
+
+    # Si la ruta es relativa al archivo original, intenta resolver y remapear a assets/
+    abs_candidate = (md_path.parent / s).resolve()
+    try:
+        rel = abs_candidate.relative_to(root.resolve())
+        rel_str = str(rel).replace("\\", "/")
+        # Si está dentro de assets/, devuelve relativo a raíz
+        if rel_str.startswith("assets/"):
+            return rel_str
+    except Exception:
+        pass
+
+    # Ultimo recurso: si ya comienza por assets/ lo dejamos
+    return s
+
+def fix_image_paths(md_text: str, md_path: Path) -> str:
+    # ![alt](src)  -> normalizar "src"
+    def repl(m):
+        alt = m.group(1)
+        src = m.group(2)
+        new_src = _normalize_src(src, md_path)
+        return f"![{alt}]({new_src})"
+    return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', repl, md_text)
+
+# ---------- Traducción preservando bloques ----------
+
 FENCE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 INLINE = re.compile(r"`[^`]+`")
 
@@ -104,7 +135,6 @@ def translate_md(text: str) -> str:
         ps = p.strip()
         if not ps:
             return p
-        # No traducir encabezados ni líneas que sean solo imagen/enlace
         if re.match(r"^\s*#{1,6}\s", ps):
             return p
         if re.match(r"^\s*(!?\[.*?\]\(.*?\))\s*$", ps):
@@ -116,34 +146,27 @@ def translate_md(text: str) -> str:
         except Exception:
             return p
 
-    parts = re.split(r"(\n\s*\n)", text)  # conserva separadores
+    parts = re.split(r"(\n\s*\n)", text)
     for i in range(0, len(parts), 2):
         parts[i] = translate_paragraph(parts[i])
     text = "".join(parts)
 
-    # Restaurar
     text = re.sub(r"§§INLINE(\d+)§§", lambda m: inlines[int(m.group(1))], text)
     text = re.sub(r"§§FENCE(\d+)§§", lambda m: fences[int(m.group(1))], text)
     return text
 
-# --- Flujo principal ---
-
 def main():
-    # 1) Capítulos por carpetas
+    # Capítulos
     chapter_files = list_chapter_files()
-
-    # 2) Ficheros raíz al final (Conclusión, Glosario, Índice..., README)
+    # Extras raíz
     extra_files = list_root_files()
 
-    # 3) Excluir el manuscrito-índice y evitar duplicados accidentales
     def skip(f: Path) -> bool:
         name = f.name
-        if name.lower() == "readme.md":
-            return False
-        if name.lower() == "license" or name.lower() == "license.md":
+        if name.lower() in {"license", "license.md"}:
             return True
         if name.startswith("Agentic_Design_Patterns"):
-            return True  # es el "índice" con enlaces externos
+            return True  # manuscrito-índice con enlaces externos
         return False
 
     chapter_files = [f for f in chapter_files if not skip(f)]
@@ -156,21 +179,20 @@ def main():
     with out_path.open("w", encoding="utf-8") as out:
         first = True
 
-        # Escribe capítulos
         for md in chapter_files:
             text = md.read_text(encoding="utf-8")
+            text = fix_image_paths(text, md)          # <<< normaliza rutas
             text_es = translate_md(text)
             if not first:
                 out.write("\n\n\\newpage\n\n")
             out.write(text_es)
             first = False
 
-        # Escribe extras (Conclusión, Glosario, Índice..., README)
         for md in extra_files:
             text = md.read_text(encoding="utf-8")
             if is_readme(md) and not PRESERVE_README_AS_IS:
-                # Elimina la sección "Table of Contents" del README para no duplicar el TOC
                 text = strip_sections_by_title(text, ["Table of Contents"])
+            text = fix_image_paths(text, md)          # <<< normaliza rutas
             text_es = translate_md(text)
             out.write("\n\n\\newpage\n\n")
             out.write(text_es)
