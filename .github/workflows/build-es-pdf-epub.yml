@@ -30,10 +30,10 @@ jobs:
         run: python tools/merge_and_translate.py
 
       - name: Build EPUB (ES)
-        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. --metadata=title:"Agentic Design Patterns (Traduccion tecnica en espanol)" --metadata=language:es-ES --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png -o build/Agentic_Design_Patterns_es.epub
+        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=4 --resource-path=. --metadata=title:"Agentic Design Patterns (Traduccion tecnica en espanol)" --metadata=language:es-ES --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png -o build/Agentic_Design_Patterns_es.epub
 
       - name: Build PDF (ES, A4, header/footer)
-        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. --pdf-engine=xelatex -V papersize:A4 -V geometry:margin=20mm --include-in-header=tools/latex/header.tex --include-before-body=tools/latex/cover.tex -o build/Agentic_Design_Patterns_es.pdf
+        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=4 --resource-path=. --pdf-engine=xelatex -V papersize:A4 -V geometry:margin=20mm --include-in-header=tools/latex/header.tex --include-before-body=tools/latex/cover.tex -o build/Agentic_Design_Patterns_es.pdf
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
