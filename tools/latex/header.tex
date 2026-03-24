@@ -1,6 +1,15 @@
 % tools/latex/header.tex
+\usepackage{fontspec}
 \usepackage{fancyhdr}
 \usepackage{graphicx}
+\usepackage{amssymb} % símbolos como ≥ ≤, etc.
+
+% Fuentes con buen soporte Unicode
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono} % evita faltas en bloques de código
+
+% Encabezado / pie
 \pagestyle{fancy}
 \fancyhf{}
 \lhead{Agentic Design Patterns - Traduccion tecnica (ES)}
