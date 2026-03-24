@@ -10,51 +10,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system deps (Pandoc, TeX, wget)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-recommended \
-            texlive-fonts-recommended texlive-latex-extra wget
+      - name: Install Pandoc and TeX
+        run: sudo apt-get update && sudo apt-get install -y pandoc texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --no-input argostranslate==1.9.6 markdown-it-py==3.0.0
+          python -m pip install --no-input argostranslate==1.11.0 markdown-it-py==3.0.0
 
-      - name: Download Argos EN->ES model
-        run: |
-          wget -O /tmp/en_es.argosmodel \
-            https://github.com/argosopentech/argos-translate/releases/download/v1.9/en_es.argosmodel
-
-      - name: Install Argos model
-        run: |
-          python -c "import argostranslate.package as p; p.install_from_path('/tmp/en_es.argosmodel'); print('Model installed')"
+      - name: Install Argos model (EN -> ES) via API
+        run: python tools/install_model.py
 
       - name: Translate book (EN -> ES)
-        run: |
-          python tools/translate.py
+        run: python tools/translate.py
 
       - name: Build EPUB (ES)
-        run: |
-          mkdir -p build
-          pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. \
-            --metadata=title:'Agentic Design Patterns (Traduccion tecnica en espanol)' \
-            --metadata=language:es-ES \
-            --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png \
-            -o build/Agentic_Design_Patterns_es.epub
+        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. --metadata=title:"Agentic Design Patterns (Traduccion tecnica en espanol)" --metadata=language:es-ES --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png -o build/Agentic_Design_Patterns_es.epub
 
       - name: Build PDF (ES, A4, header/footer)
-        run: |
-          pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. \
-            --pdf-engine=xelatex -V papersize:A4 -V geometry:margin=20mm \
-            --include-in-header=tools/latex/header.tex \
-            --include-before-body=tools/latex/cover.tex \
-            -o build/Agentic_Design_PatternS_es.pdf
+        run: pandoc build/book-es.md --from=gfm --toc --toc-depth=3 --resource-path=. --pdf-engine=xelatex -V papersize:A4 -V geometry:margin=20mm --include-in-header=tools/latex/header.tex --include-before-body=tools/latex/cover.tex -o build/Agentic_Design_Patterns_es.pdf
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
