@@ -1,0 +1,148 @@
+name: Build ES EPUB & PDF (one-off)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system deps (Pandoc + TeX)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-latex-recommended \
+            texlive-fonts-recommended texlive-latex-extra
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install translation libs
+        run: |
+          python -m pip install --upgrade pip
+          pip install argostranslate==1.9.6 markdown-it-py==3.0.0
+
+          # Instala paquete EN->ES de Argos Translate
+          python - << 'PY'
+import argostranslate.package, urllib.request, os, tempfile
+url = "https://github.com/argosopentech/argos-translate/releases/download/v1.9/en_es.argosmodel"
+dst = os.path.join(tempfile.gettempdir(), "en_es.argosmodel")
+urllib.request.urlretrieve(url, dst)
+argostranslate.package.install_from_path(dst)
+PY
+
+      - name: Prepare LaTeX header and cover (PDF)
+        run: |
+          mkdir -p build
+          # Encabezado/pie PDF con fancyhdr
+          cat > build/header.tex << 'TEX'
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Agentic Design Patterns — Traducción técnica (ES)}
+\rfoot{\thepage}
+\setlength{\headheight}{14pt}
+TEX
+
+          # Portada como titlepage en PDF
+          cat > build/cover.tex << 'TEX'
+\begin{titlepage}
+\centering
+\includegraphics[width=\textwidth]{assets/Agentic_Design_Patterns_Book_Cover.png}
+\end{titlepage}
+\clearpage
+TEX
+
+      - name: Translate Markdown (EN -> ES) preserving code & links
+        run: |
+          python - << 'PY'
+import re, os
+from pathlib import Path
+import argostranslate.translate as tr
+
+root = Path(".")
+# Preferimos el manuscrito MD compilado de la raíz (preserva el orden del libro)
+candidates = sorted(root.glob("Agentic_Design_Patterns*.md"))
+if not candidates:
+    raise SystemExit("No se encontró el manuscrito compilado en la raíz.")
+src_md = candidates[0]
+text = src_md.read_text(encoding="utf-8")
+
+# Proteger bloques de código y backticks
+FENCE = re.compile(r"```[\\s\\S]*?```", re.MULTILINE)
+INLINE = re.compile(r"`[^`]+`")
+fences = []
+inlines = []
+
+def keep_fence(m):
+    fences.append(m.group(0))
+    return f"§§FENCE{len(fences)-1}§§"
+
+def keep_inline(m):
+    inlines.append(m.group(0))
+    return f"§§INLINE{len(inlines)-1}§§"
+
+text = FENCE.sub(keep_fence, text)
+text = INLINE.sub(keep_inline, text)
+
+# Traducción por párrafos (salta títulos, imágenes y líneas muy cortas)
+def translate_paragraph(p: str) -> str:
+    ps = p.strip()
+    if not ps: return p
+    if re.match(r"^\\s*#{1,6}\\s", ps): return p  # encabezados
+    if re.match(r"^\\s*(!?\\[.*?\\]\\(.*?\\))\\s*$", ps): return p  # imagen/enlace puros
+    if len(ps) < 6: return p
+    try:
+        return tr.translate(p, "en", "es")
+    except Exception:
+        return p
+
+parts = re.split(r"(\\n\\s*\\n)", text)  # conserva separadores
+for i in range(0, len(parts), 2):
+    parts[i] = translate_paragraph(parts[i])
+text = "".join(parts)
+
+# Restaurar inline y fences
+text = re.sub(r"§§INLINE(\\d+)§§", lambda m: inlines[int(m.group(1))], text)
+text = re.sub(r"§§FENCE(\\d+)§§", lambda m: fences[int(m.group(1))], text)
+
+Path("build").mkdir(exist_ok=True)
+Path("build/book-es.md").write_text(text, encoding="utf-8")
+print("Traducido -> build/book-es.md")
+PY
+
+      - name: Build EPUB (ES)
+        run: |
+          pandoc build/book-es.md \
+            --from=gfm \
+            --toc --toc-depth=3 \
+            --resource-path=. \
+            --metadata=title:"Agentic Design Patterns (Traducción técnica al español)" \
+            --metadata=language:es-ES \
+            --epub-cover-image=assets/Agentic_Design_Patterns_Book_Cover.png \
+            -o build/Agentic_Design_Patterns_es.epub
+
+      - name: Build PDF (ES, A4, header/footer)
+        run: |
+          pandoc build/book-es.md \
+            --from=gfm \
+            --toc --toc-depth=3 \
+            --resource-path=. \
+            --pdf-engine=xelatex \
+            -V papersize:A4 -V geometry:margin=20mm \
+            --include-in-header=build/header.tex \
+            --include-before-body=build/cover.tex \
+            -o build/Agentic_Design_PatternS_es.pdf
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Agentic-Design-Patterns-ES
+          path: |
+            build/*.epub
+            build/*.pdf
