@@ -4,7 +4,7 @@
 Fusiona y traduce al español (registro técnico) la documentación Markdown del repo:
 - Recorre carpetas 00..05 en orden y concatena sus .md
 - Añade ficheros raíz (Conclusión, Glosario, Índice, FAQ, README)
-- Normaliza rutas de imágenes para que funcionen desde la raíz (build/)
+- Normaliza rutas de imágenes para que funcionen desde la raíz (build/) **PRESERVANDO** la sintaxis ![alt](src)
 - Traduce preservando bloques de código/backticks
 - Traduce encabezados y añade el término original en inglés entre paréntesis
 - Inserta \newpage entre archivos para un paginado limpio (PDF con xelatex)
@@ -16,11 +16,8 @@ import re
 from pathlib import Path
 import argostranslate.translate as tr
 
-# =========================
-# Configuración de secciones
-# =========================
+# ============= Configuración =============
 
-# Orden de carpetas de capítulos
 ORDERED_DIRS = [
     "00-Introduction",
     "01-Part_One",
@@ -30,23 +27,17 @@ ORDERED_DIRS = [
     "05-Appendix",
 ]
 
-# Ficheros raíz a añadir (al final) en este orden si existen
 ROOT_FILES_ORDER = [
     "Conclusion*.md",                 # Conclusión
     "Glossary*.md",                   # Glosario
     "Index_of_Terms*.md",             # Índice de términos
-    "Online_Contribution*.md",        # FAQ de contribución (opcional)
-    "README.md",                      # README (se filtra TOC por defecto)
+    "Online_Contribution*.md",        # FAQ contribución (opcional)
+    "README.md",                      # README (filtramos su TOC por defecto)
 ]
 
-# ¿Incluir el README tal cual (sin filtrar su TOC)?
-PRESERVE_README_AS_IS = False
+PRESERVE_README_AS_IS = False  # pon True si quieres incluir TODO el README sin filtrar
 
-# =========================
-# Encabezados (headings)
-# =========================
-
-# Términos de patrones/conceptos a mantener en inglés entre paréntesis en el heading
+# Términos a mantener en inglés en headings (se añaden entre paréntesis)
 KEEP_EN_TERMS = [
     "Prompt Chaining",
     "Routing",
@@ -71,27 +62,22 @@ KEEP_EN_TERMS = [
     "Exploration and Discovery",
     "Appendix",
 ]
-
-# Añadir (EnglishTerm) al final del heading traducido
 HEADINGS_APPEND_ENGLISH = True
 
-# =========================
-# Paths y utilidades
-# =========================
+# ============= Paths / regex =============
 
 root = Path(".")
 build = Path("build")
 assets_dir = root / "assets"
 build.mkdir(exist_ok=True)
 
-# Regex reutilizados
 HEADING_RE = re.compile(r"^(\s*)(#{1,6})\s+(.*)$", re.MULTILINE)
 FENCE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 INLINE = re.compile(r"`[^`]+`")
 
+# ============= Utilidades =============
 
 def list_chapter_files() -> list[Path]:
-    """Lista todos los .md de las carpetas de capítulos, ordenados por nombre."""
     files: list[Path] = []
     for d in ORDERED_DIRS:
         p = root / d
@@ -99,25 +85,17 @@ def list_chapter_files() -> list[Path]:
             files += sorted(p.glob("*.md"), key=lambda x: x.name)
     return files
 
-
 def list_root_files() -> list[Path]:
-    """Devuelve los ficheros raíz en el orden deseado, si existen."""
     files: list[Path] = []
     for pattern in ROOT_FILES_ORDER:
         files += sorted(root.glob(pattern), key=lambda x: x.name)
     return files
 
-
 def is_readme(path: Path) -> bool:
     return path.name.lower() == "readme.md"
 
-
 def strip_sections_by_title(md_text: str, titles_to_strip: list[str]) -> str:
-    """
-    Elimina secciones completas cuyo encabezado H1..H6 coincida (case-insensitive)
-    con alguna cadena en 'titles_to_strip'. Quita desde el encabezado hasta el
-    siguiente encabezado del mismo nivel o superior.
-    """
+    """Quita secciones enteras cuyo heading coincide con títulos dados."""
     lines = md_text.splitlines()
     out = []
     i = 0
@@ -128,7 +106,6 @@ def strip_sections_by_title(md_text: str, titles_to_strip: list[str]) -> str:
             level = len(m.group(2))
             title = m.group(3).strip().lower()
             if any(title.startswith(t.strip().lower()) for t in titles_to_strip):
-                # Saltar hasta el siguiente heading con nivel <=
                 i += 1
                 while i < len(lines):
                     m2 = re.match(r'^\s*#{1,6}\s+', lines[i])
@@ -142,18 +119,15 @@ def strip_sections_by_title(md_text: str, titles_to_strip: list[str]) -> str:
         i += 1
     return "\n".join(out)
 
-
-# =========================
-# Normalización de imágenes
-# =========================
+# ============= Normalización de imágenes =============
 
 def _normalize_src(src: str, md_path: Path) -> str:
     """
-    Normaliza la ruta de una imagen para que funcione desde la raíz (build/):
+    Normaliza la ruta para que funcione desde la raíz (build/):
     - ../assets/...  -> assets/...
     - ./assets/...   -> assets/...
-    - assests/..     -> assets/...
-    - nombre suelto  -> assets/<nombre> (si existe)
+    - assests/...    -> assets/...
+    - nombre suelto  -> assets/<nombre> si existe
     - rutas relativas -> si caen dentro de assets/, remapear a 'assets/...'
     """
     s = src.strip()
@@ -162,17 +136,17 @@ def _normalize_src(src: str, md_path: Path) -> str:
     if s.startswith(("http://", "https://", "data:")):
         return s
 
-    # Correcciones directas de prefijos comunes
+    # Correcciones comunes
     s = s.replace("assests/", "assets/").replace("../assests/", "assets/")
     s = s.replace("../assets/", "assets/").replace("./assets/", "assets/")
 
-    # Nombre suelto: si existe en assets/, prefijar
+    # Nombre suelto -> mirar en assets/
     if "/" not in s:
         cand = assets_dir / s
         if cand.exists():
             return f"assets/{s}"
 
-    # Rutas relativas al archivo original -> resolver
+    # Resolver desde el archivo actual
     abs_candidate = (md_path.parent / s).resolve()
     try:
         rel = abs_candidate.relative_to(root.resolve())
@@ -182,27 +156,50 @@ def _normalize_src(src: str, md_path: Path) -> str:
     except Exception:
         pass
 
-    # Último recurso: devolver tal cual (ya podría ser assets/..., o ruta válida)
     return s
 
-
-def fix_image_paths(md_text: str, md_path: Path) -> str:
+def _fix_markdown_images(md_text: str, md_path: Path) -> str:
     """
-    Reescribe sintaxis Markdown de imágenes para normalizar src.
-    Mantiene el alt-text original.
+    Reescribe ![alt](src) -> ![alt](src_normalizada)
+    Conserva el 'alt' y la estructura Markdown.
     """
     def repl(m):
-        alt = m.group(1)
+        alt = m.group(1) or ""
         src = m.group(2)
         new_src = _normalize_src(src, md_path)
         return f"![{alt}]({new_src})"
-
     return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', repl, md_text)
 
+def _fix_html_images(md_text: str, md_path: Path) -> str:
+    """
+    Reescribe <img ... src="..."> -> <img ... src="src_normalizada">
+    """
+    def repl(m):
+        before = m.group(1) or ""
+        src = m.group(2)
+        after = m.group(3) or ""
+        new_src = _normalize_src(src, md_path)
+        return f'<img{before}src="{new_src}"{after}>'
+    return re.sub(r'<img([^>]*?)src=["\']([^"\']+)["\']([^>]*)>', repl, md_text, flags=re.IGNORECASE)
 
-# =========================
-# Traducción de contenidos
-# =========================
+def _fix_reference_defs(md_text: str, md_path: Path) -> str:
+    """
+    Reescribe definiciones de referencia: [label]: ruta -> [label]: ruta_normalizada
+    """
+    def repl(m):
+        label = m.group(1)
+        url = m.group(2)
+        new_url = _normalize_src(url, md_path)
+        return f'[{label}]: {new_url}'
+    return re.sub(r'^\s*\[([^\]]+)\]:\s*(\S+)\s*$', repl, md_text, flags=re.MULTILINE)
+
+def fix_image_paths(md_text: str, md_path: Path) -> str:
+    md_text = _fix_markdown_images(md_text, md_path)
+    md_text = _fix_html_images(md_text, md_path)
+    md_text = _fix_reference_defs(md_text, md_path)
+    return md_text
+
+# ============= Traducción =============
 
 def translate_heading_line(m: re.Match) -> str:
     """Traduce un heading y añade (EnglishTerm) si corresponde."""
@@ -221,11 +218,9 @@ def translate_heading_line(m: re.Match) -> str:
 
     return f"{indent}{hashes} {es}"
 
-
 def translate_md(text: str) -> str:
     """
-    Traduce un bloque Markdown al español preservando código y backticks.
-    Headings se traducen en una pasada final dedicada para poder añadir (EnglishTerm).
+    Traduce Markdown preservando código/backticks; headings se traducen en una pasada final.
     """
     fences, inlines = [], []
 
@@ -241,16 +236,14 @@ def translate_md(text: str) -> str:
     text = FENCE.sub(keep_fence, text)
     text = INLINE.sub(keep_inline, text)
 
-    # Traducción por párrafos (dejamos headings para la pasada final)
+    # Traducción por párrafos (saltando headings aquí)
     def translate_paragraph(p: str) -> str:
         ps = p.strip()
         if not ps:
             return p
-        # Evitar traducir líneas que sean solo imagen/enlace
-        if re.match(r"^\s*(!?\[.*?\]\(.*?\))\s*$", ps):
+        if re.match(r"^\s*(!?\[.*?\]\(.*?\))\s*$", ps):  # imagen o enlace puro
             return p
-        # Evitar headings aquí; se tratan al final
-        if re.match(r"^\s*#{1,6}\s", ps):
+        if re.match(r"^\s*#{1,6}\s", ps):                # heading -> lo tratamos luego
             return p
         if len(ps) < 6:
             return p
@@ -259,7 +252,7 @@ def translate_md(text: str) -> str:
         except Exception:
             return p
 
-    parts = re.split(r"(\n\s*\n)", text)  # conserva separadores
+    parts = re.split(r"(\n\s*\n)", text)
     for i in range(0, len(parts), 2):
         parts[i] = translate_paragraph(parts[i])
     text = "".join(parts)
@@ -268,20 +261,16 @@ def translate_md(text: str) -> str:
     text = re.sub(r"§§INLINE(\d+)§§", lambda m: inlines[int(m.group(1))], text)
     text = re.sub(r"§§FENCE(\d+)§§", lambda m: fences[int(m.group(1))], text)
 
-    # Pasada final: traducir headings y añadir (EnglishTerm)
+    # Pasada final: headings
     text = HEADING_RE.sub(translate_heading_line, text)
     return text
 
-
-# =========================
-# Flujo principal
-# =========================
+# ============= Flujo principal =============
 
 def main() -> None:
     # 1) Capítulos por carpetas
     chapter_files = list_chapter_files()
-
-    # 2) Ficheros raíz (Conclusión, Glosario, Índice..., README)
+    # 2) Ficheros raíz
     extra_files = list_root_files()
 
     # 3) Excluir manuscrito-índice y licencia
@@ -290,7 +279,7 @@ def main() -> None:
         if name.lower() in {"license", "license.md"}:
             return True
         if name.startswith("Agentic_Design_Patterns"):
-            return True  # El "índice" con enlaces externos, no contiene el cuerpo
+            return True  # índice externo, sin cuerpo
         return False
 
     chapter_files = [f for f in chapter_files if not skip(f)]
@@ -306,18 +295,17 @@ def main() -> None:
         # Escribe capítulos
         for md in chapter_files:
             text = md.read_text(encoding="utf-8")
-            text = fix_image_paths(text, md)          # normaliza rutas de imágenes
+            text = fix_image_paths(text, md)          # <<< normaliza rutas conservando ![alt](src)
             text_es = translate_md(text)
             if not first:
                 out.write("\n\n\\newpage\n\n")
             out.write(text_es)
             first = False
 
-        # Escribe anexos/raíces (Conclusión, Glosario, Índice..., README)
+        # Escribe anexos/raíces
         for md in extra_files:
             text = md.read_text(encoding="utf-8")
             if is_readme(md) and not PRESERVE_README_AS_IS:
-                # Evita duplicar la TOC del README; el PDF/EPUB ya llevan TOC automático
                 text = strip_sections_by_title(text, ["Table of Contents"])
             text = fix_image_paths(text, md)
             text_es = translate_md(text)
@@ -325,7 +313,6 @@ def main() -> None:
             out.write(text_es)
 
     print(f"OK: {out_path} ({len(chapter_files)} capítulos + {len(extra_files)} anexos raíz)")
-
 
 if __name__ == "__main__":
     main()
